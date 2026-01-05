@@ -7,7 +7,8 @@ import os
 from typing import List, Set
 
 try:
-    import gdal
+    from osgeo import gdal
+    gdal.UseExceptions()
 
     GDAL_AVAILABLE = True
 except ImportError:
