@@ -1,0 +1,19 @@
+
+==================================================
+COG Conversion Log - 2026-01-05 14:58:13.979516
+==================================================
+
+
+==================================================
+COG Conversion Log - 2026-01-05 14:58:31.041781
+==================================================
+
+
+==================================================
+COG Conversion Log - 2026-01-05 15:25:02.157910
+==================================================
+
+SUCCESS: 2026-01-05 15:25:02.696488 - test_data/Asia-Europe_Regional_Stitch_Europe_Isostatic_Residual.tif -> ./cog_output/Asia-Europe_Regional_Stitch_Europe_Isostatic_Residual.tif
+SUCCESS: 2026-01-05 15:25:02.811282 - test_data/North America_USA_99 Degree Tieline_FlightPath.tif -> ./cog_output/North America_USA_99 Degree Tieline_FlightPath.tif
+SUCCESS: 2026-01-05 15:25:03.218088 - test_data/Asia-Europe_Regional_Stitch_Europe_Complete_Bouguer_Grid.tif -> ./cog_output/Asia-Europe_Regional_Stitch_Europe_Complete_Bouguer_Grid.tif
+SUCCESS: 2026-01-05 15:25:12.269900 - test_data/North America_USA_Balmat Edwards Mag 110008_Flight Path.tif -> ./cog_output/North America_USA_Balmat Edwards Mag 110008_Flight Path.tif

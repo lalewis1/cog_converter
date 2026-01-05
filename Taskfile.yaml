@@ -1,0 +1,11 @@
+version: 3
+
+tasks:
+  format:
+    desc: Format the codebase
+    cmds:
+      - uv run black cog_converter/
+      - uv run isort cog_converter/
+  lint:
+    desc: Lint the codebase
+    cmd: uv run ruff check --fix cog_converter/

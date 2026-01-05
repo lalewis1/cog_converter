@@ -1,0 +1,23 @@
+{
+    "temp_directory": "/tmp/cog_temp",
+    "output_directory": "./cog_output",
+    "cog_parameters": {
+        "compression": "LZW",
+        "blocksize": "512",
+        "overview_resampling": "average",
+        "overview_levels": "auto"
+    },
+    "supported_formats": {
+        "geotiff": [".tif", ".tiff"],
+        "worldimage": [".jpg", ".jpeg", ".png"]
+    },
+    "error_handling": {
+        "max_retries": 3,
+        "retry_delay": 5,
+        "error_log": "conversion_errors.log"
+    },
+    "performance": {
+        "max_workers": 4,
+        "memory_limit_mb": 4096
+    }
+}
