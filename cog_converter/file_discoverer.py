@@ -8,6 +8,7 @@ from typing import List, Set
 
 try:
     from osgeo import gdal
+
     gdal.UseExceptions()
 
     GDAL_AVAILABLE = True

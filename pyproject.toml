@@ -1,15 +1,20 @@
 [project]
-name = "gs"
+name = "cog_converter"
 version = "0.1.0"
-description = "Add your description here"
+description = "COG Conversion Engine - Convert raster files to Cloud Optimized GeoTIFFs"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "azure-storage-blob>=12.27.1",
     "gdal==3.12.0.post1",
+    "pytest>=9.0.2",
 ]
 
 [tool.isort]
 profile = "black"
+
+[tool.pytest]
+testpaths = ["test"]
 
 [dependency-groups]
 dev = [

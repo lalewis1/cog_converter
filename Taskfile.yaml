@@ -4,12 +4,12 @@ tasks:
   format:
     desc: Format the codebase
     cmds:
-      - uv run black cog_converter/
-      - uv run isort cog_converter/
+      - uv run black cog_converter/ tests/
+      - uv run isort cog_converter/ tests/
   lint:
     desc: Lint the codebase
-    cmd: uv run ruff check --fix cog_converter/
+    cmd: uv run ruff check --fix cog_converter/ tests/
 
   convert:
     desc: Run the COG Converter over the test data
-    cmd: uv run python -m cog_converter test_data
+    cmd: uv run python -m cog_converter tests/data

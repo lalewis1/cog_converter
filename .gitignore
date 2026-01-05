@@ -11,4 +11,4 @@ wheels/
 
 conversion_errors.log
 cog_output/
-test_data/
+tests/data/

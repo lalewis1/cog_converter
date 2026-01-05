@@ -32,6 +32,15 @@ class ConfigurationManager:
             "error_log": "conversion_errors.log",
         },
         "performance": {"max_workers": 4, "memory_limit_mb": 4096},
+        "storage": {
+            "enabled": False,
+            "provider": "azure",  # azure, aws, gcp, or local
+            "azure_connection_string": "",
+            "container_name": "cog-conversions",
+            "metadata_file": "conversion_metadata.json",
+            "upload_successful_only": True,
+            "preserve_local_cogs": False,
+        },
     }
 
     def __init__(self, config_file: Optional[str] = None):
