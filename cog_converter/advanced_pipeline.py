@@ -26,14 +26,14 @@ class AdvancedConversionPipeline:
         self.error_handler = ErrorHandler(config["error_handling"])
         self.stats = self._initialize_stats()
 
+        # Setup logging
+        self.logger = logging.getLogger(__name__)
+
         # Initialize storage components
         self.storage_enabled = config.get("storage", {}).get("enabled", False)
         self.uploader = None
         self.metadata_manager = None
         self._initialize_storage()
-
-        # Setup logging
-        self.logger = logging.getLogger(__name__)
 
     def _initialize_converters(self) -> List[Any]:
         """Initialize all available converters"""
@@ -238,8 +238,6 @@ class AdvancedConversionPipeline:
 
     def get_storage_stats(self) -> Dict[str, Any]:
         """Get storage-specific statistics"""
-        if self.metadata_manager:
-            return self.metadata_manager.get_statistics()
         return {
             "uploaded_files": self.stats.get("uploaded", 0),
             "upload_failed": self.stats.get("upload_failed", 0),

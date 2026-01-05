@@ -12,3 +12,5 @@ wheels/
 conversion_errors.log
 cog_output/
 tests/data/
+conversion_metadata.json
+sample_config.json

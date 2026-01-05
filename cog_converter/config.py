@@ -37,7 +37,7 @@ class ConfigurationManager:
             "provider": "azure",  # azure, aws, gcp, or local
             "azure_connection_string": "",
             "container_name": "cog-conversions",
-            "metadata_file": "conversion_metadata.json",
+            "metadata_file": "./conversion_metadata.json",
             "upload_successful_only": True,
             "preserve_local_cogs": False,
         },
