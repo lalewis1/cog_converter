@@ -9,3 +9,7 @@ tasks:
   lint:
     desc: Lint the codebase
     cmd: uv run ruff check --fix cog_converter/
+
+  convert:
+    desc: Run the COG Converter over the test data
+    cmd: uv run python -m cog_converter test_data
