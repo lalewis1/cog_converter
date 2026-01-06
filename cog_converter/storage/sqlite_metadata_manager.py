@@ -737,17 +737,8 @@ class SQLiteMetadataManager:
             return True
 
         # Check if processing was successful
-        if state.get("status") in ["completed", "duplicate_referenced", "skipped"]:
+        if state.get("status") in ["completed", "duplicate_referenced"]:
             # File was successfully processed and hasn't changed
-            # Update processing state to current run but still skip
-            if current_run_id:
-                self._update_processing_state_for_run(
-                    file_path,
-                    state["content_hash"],
-                    "skipped",
-                    current_mtime,
-                    current_run_id,
-                )
             return False
 
         # For failed or skipped files, we might want to retry
@@ -782,70 +773,6 @@ class SQLiteMetadataManager:
         except Exception as e:
             self.logger.error(f"Failed to get processing state: {str(e)}")
             return None
-
-    def _update_processing_state_for_run(
-        self,
-        file_path: str,
-        content_hash: str,
-        status: str,
-        file_modification_time: float,
-        run_id: int,
-    ) -> None:
-        """Update processing state specifically for a run."""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-
-        try:
-            # Check if this run already has a state for this file
-            cursor.execute(
-                """
-                SELECT run_id FROM processing_state
-                WHERE file_path = ? AND run_id = ?
-            """,
-                (file_path, run_id),
-            )
-
-            if cursor.fetchone():
-                # Update existing run-specific state
-                cursor.execute(
-                    """
-                    UPDATE processing_state
-                    SET status = ?, last_processed = ?, file_modification_time = ?
-                    WHERE file_path = ? AND run_id = ?
-                """,
-                    (
-                        status,
-                        datetime.now().isoformat(),
-                        file_modification_time,
-                        file_path,
-                        run_id,
-                    ),
-                )
-            else:
-                # Insert new run-specific state
-                cursor.execute(
-                    """
-                    INSERT INTO processing_state
-                    (file_path, status, content_hash, last_processed, file_modification_time, run_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        file_path,
-                        status,
-                        content_hash,
-                        datetime.now().isoformat(),
-                        file_modification_time,
-                        run_id,
-                    ),
-                )
-
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            self.logger.error(
-                f"Failed to update run-specific processing state: {str(e)}"
-            )
-            raise
 
     def is_duplicate_content(self, content_hash: str, file_path: str) -> bool:
         """

@@ -23,11 +23,13 @@ class ConversionEngine:
         config_file: Optional[str] = None,
     ):
         """Initialize the conversion engine"""
+        # Apply configuration in proper order: defaults -> config_file -> CLI args
         self.config = ConfigurationManager()
         if config_file:
-            self.config = ConfigurationManager(config_file)
+            self.config.load_config(config_file)
         if config:
-            self.config.config.update(config)
+            # Use deep update to ensure CLI args override config file args
+            self.config._deep_update(self.config.config, config)
 
         self.file_discoverer = FileDiscoverer(self.config.config)
         self.pipeline = ConversionPipeline(self.config.config)

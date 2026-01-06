@@ -76,8 +76,11 @@ class ConfigurationManager:
             print(f"Warning: Could not load config file: {e}")
 
     def _deep_update(self, original: Dict, update: Dict):
-        """Recursively update dictionary"""
+        """Recursively update dictionary, ignoring None values"""
         for key, value in update.items():
+            if value is None:
+                # Skip None values to avoid overriding existing configuration
+                continue
             if isinstance(value, dict) and key in original:
                 self._deep_update(original[key], value)
             else:
@@ -114,3 +117,10 @@ class ConfigurationManager:
     def __repr__(self):
         """Pretty print the config as a JSON string"""
         return json.dumps(self.config, indent=2)
+
+    def dump_config_json(self):
+        """Dump the current configuration as JSON to stdout"""
+        import sys
+
+        json.dump(self.config, sys.stdout, indent=2)
+        print()  # Add newline for better formatting
