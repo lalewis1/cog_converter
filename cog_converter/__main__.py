@@ -5,7 +5,7 @@ Main entry point for COG Conversion Engine
 
 import argparse
 
-from .advanced_engine import AdvancedConversionEngine
+from .engine import ConversionEngine
 
 
 def main():
@@ -123,7 +123,7 @@ def main():
     }
 
     # Create and run engine
-    engine = AdvancedConversionEngine(config=engine_config, config_file=args.config)
+    engine = ConversionEngine(config=engine_config, config_file=args.config)
 
     # Run conversion
     stats = engine.run(args.input)

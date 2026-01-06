@@ -41,6 +41,7 @@ class ConfigurationManager:
             "preserve_local_cogs": False,
         },
         "metadata": {
+            "enabled": True,
             "database_file": "conversion_metadata.db",
             "create_backup": True,
             "max_backups": 7,

@@ -18,9 +18,9 @@ class ErrorHandler:
 
         # Ensure log file exists
         with open(self.log_file, "a") as f:
-            f.write(f"\n{'='*50}\n")
+            f.write(f"\n{'=' * 50}\n")
             f.write(f"COG Conversion Log - {datetime.now()}\n")
-            f.write(f"{'='*50}\n\n")
+            f.write(f"{'=' * 50}\n\n")
 
     def log_success(self, input_path: str, output_path: str):
         """Log successful conversion"""

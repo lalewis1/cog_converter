@@ -367,7 +367,7 @@ class SQLiteMetadataManager:
                     # Add new content hash index entry
                     cursor.execute(
                         """
-                        INSERT OR IGNORE INTO content_hash_index 
+                        INSERT OR IGNORE INTO content_hash_index
                         (content_hash, file_path)
                         VALUES (?, ?)
                     """,
@@ -580,6 +580,35 @@ class SQLiteMetadataManager:
             run_id=run_id,
         )
 
+    def create_conversion_record(
+        self,
+        original_file_path: str,
+        cog_file_path: str,
+        run_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create a conversion record for local COG files (no blob storage).
+
+        Args:
+            original_file_path: Original file path
+            cog_file_path: Path to the converted COG file
+            run_id: Optional run ID for tracking
+
+        Returns:
+            Created conversion record
+        """
+        # Calculate content hash from the original file
+        content_hash = self._calculate_content_hash(original_file_path)
+
+        return self.add_conversion_record(
+            original_file_path=original_file_path,
+            cog_file_path=cog_file_path,
+            blob_path="",  # No blob storage
+            content_hash=content_hash,
+            blob_url=None,  # No blob URL
+            run_id=run_id,
+        )
+
     def create_conversion_record_from_upload(
         self,
         original_file_path: str,
@@ -708,7 +737,7 @@ class SQLiteMetadataManager:
             return True
 
         # Check if processing was successful
-        if state.get("status") in ["completed", "duplicate_referenced"]:
+        if state.get("status") in ["completed", "duplicate_referenced", "skipped"]:
             # File was successfully processed and hasn't changed
             # Update processing state to current run but still skip
             if current_run_id:
@@ -770,7 +799,7 @@ class SQLiteMetadataManager:
             # Check if this run already has a state for this file
             cursor.execute(
                 """
-                SELECT run_id FROM processing_state 
+                SELECT run_id FROM processing_state
                 WHERE file_path = ? AND run_id = ?
             """,
                 (file_path, run_id),
@@ -796,7 +825,7 @@ class SQLiteMetadataManager:
                 # Insert new run-specific state
                 cursor.execute(
                     """
-                    INSERT INTO processing_state 
+                    INSERT INTO processing_state
                     (file_path, status, content_hash, last_processed, file_modification_time, run_id)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """,
@@ -867,7 +896,7 @@ class SQLiteMetadataManager:
         try:
             cursor.execute(
                 """
-                SELECT file_path FROM content_hash_index 
+                SELECT file_path FROM content_hash_index
                 WHERE content_hash = ?
             """,
                 (content_hash,),
