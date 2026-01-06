@@ -32,7 +32,7 @@ def test_hash_utils():
     content_hash = calculate_content_hash(test_file)
 
     # Test blob path generation
-    blob_path = generate_blob_path(test_file, content_hash)
+    generate_blob_path(test_file, content_hash)
 
     # Verify the hash is consistent
     content_hash2 = calculate_content_hash(test_file)
@@ -52,12 +52,10 @@ def test_mock_uploader():
         pytest.skip(f"Test file not found: {test_file}")
 
     # Upload file
-    blob_path = uploader.upload_file(
-        local_file_path=test_file, original_file_path=test_file
-    )
+    uploader.upload_file(local_file_path=test_file, original_file_path=test_file)
 
     # Test upload with metadata
-    upload_result = uploader.upload_with_metadata(
+    uploader.upload_with_metadata(
         local_file_path=test_file,
         original_file_path=test_file,
         additional_metadata={"test": "value"},
@@ -97,7 +95,7 @@ def test_metadata_manager():
         blob_path = generate_blob_path(test_file, content_hash)
 
         # Add conversion record
-        record = metadata_manager.add_conversion_record(
+        metadata_manager.add_conversion_record(
             original_file_path=test_file,
             cog_file_path=cog_file,
             blob_path=blob_path,
@@ -115,7 +113,7 @@ def test_metadata_manager():
         assert len(found_by_blob) == 1, "Should find 1 record by blob path"
 
         # Test failed conversion
-        failed_record = metadata_manager.add_failed_conversion(
+        metadata_manager.add_failed_conversion(
             original_file_path=test_file,
             error_message="Test error",
             error_type="test_failure",
@@ -167,7 +165,7 @@ def test_integration():
         )
 
         # Step 3: Record metadata
-        record = metadata_manager.create_conversion_record_from_upload(
+        metadata_manager.create_conversion_record_from_upload(
             original_file_path=test_file, upload_result=upload_result
         )
 

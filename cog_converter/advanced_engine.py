@@ -4,7 +4,7 @@ Advanced COG Conversion Engine with Blob Storage Integration
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from .advanced_pipeline import AdvancedConversionPipeline, HybridConversionPipeline
 
@@ -12,6 +12,7 @@ from .advanced_pipeline import AdvancedConversionPipeline, HybridConversionPipel
 from .config import ConfigurationManager
 from .file_discoverer import FileDiscoverer
 from .pipeline import ConversionPipeline
+from .storage.hash_utils import calculate_content_hash
 
 
 class AdvancedConversionEngine:
@@ -76,6 +77,16 @@ class AdvancedConversionEngine:
         else:
             self.logger.info("Blob storage integration disabled")
 
+        # Start a new run for tracking
+        self.current_run_id = None
+        if hasattr(self.pipeline, "get_metadata_manager"):
+            metadata_manager = self.pipeline.get_metadata_manager()
+            if metadata_manager and hasattr(metadata_manager, "start_new_run"):
+                self.current_run_id = metadata_manager.start_new_run(
+                    input_path, self.config.config
+                )
+                self.logger.info(f"Started conversion run {self.current_run_id}")
+
         # Discover files to process
         self.logger.info("Discovering raster files...")
         files_to_process = self.file_discoverer.find_raster_files(input_path)
@@ -85,6 +96,14 @@ class AdvancedConversionEngine:
         if not files_to_process:
             self.logger.info("No raster files found to process")
             return self.pipeline.get_stats()
+
+        # Filter files based on processing configuration
+        files_to_process = self._filter_files_for_processing(
+            files_to_process,
+            self.current_run_id if hasattr(self, "current_run_id") else None,
+        )
+
+        self.logger.info(f"Processing {len(files_to_process)} files after filtering")
 
         # Process files
         for i, file_path in enumerate(files_to_process, 1):
@@ -98,7 +117,123 @@ class AdvancedConversionEngine:
         # Print summary
         self._print_summary()
 
+        # End the run
+        if self.current_run_id is not None:
+            if hasattr(self.pipeline, "get_metadata_manager"):
+                metadata_manager = self.pipeline.get_metadata_manager()
+                if metadata_manager and hasattr(metadata_manager, "end_run"):
+                    stats = self.pipeline.get_stats()
+                    metadata_manager.end_run(self.current_run_id, stats)
+                    self.logger.info(f"Completed conversion run {self.current_run_id}")
+
         return self.pipeline.get_stats()
+
+    def _filter_files_for_processing(
+        self, files: List[str], current_run_id: Optional[int] = None
+    ) -> List[str]:
+        """
+        Filter files based on processing configuration to enable efficient rerunning.
+
+        Args:
+            files: List of file paths to filter
+            current_run_id: Current run ID for tracking
+
+        Returns:
+            Filtered list of files that should be processed
+        """
+        # Get processing configuration
+        skip_processed = self.config.get("processing.skip_already_processed", True)
+        detect_duplicates = self.config.get("processing.detect_duplicates", True)
+        force_reprocess = self.config.get("processing.force_reprocess", False)
+        track_changes = self.config.get("processing.track_file_changes", True)
+        duplicate_strategy = self.config.get("processing.duplicate_strategy", "skip")
+
+        # Get metadata manager if available
+        metadata_manager = self.get_metadata_manager()
+
+        filtered_files = []
+        skipped_files = []
+        duplicate_files = []
+
+        for file_path in files:
+            should_process = True
+            skip_reason = None
+
+            # Check if we should force reprocessing
+            if force_reprocess:
+                filtered_files.append(file_path)
+                continue
+
+            # Check if metadata manager is available for smart filtering
+            if metadata_manager:
+                # Check if file should be processed based on state
+                if skip_processed and track_changes:
+                    if not metadata_manager.should_process_file(
+                        file_path, force_reprocess
+                    ):
+                        should_process = False
+                        skip_reason = "already processed and unchanged"
+
+                # Check for duplicates if enabled
+                if should_process and detect_duplicates:
+                    try:
+                        content_hash = calculate_content_hash(file_path)
+                        if metadata_manager.is_duplicate_content(
+                            content_hash, file_path
+                        ):
+                            if duplicate_strategy == "reference":
+                                # Create reference to existing blob instead of reprocessing
+                                success = metadata_manager.handle_duplicate_file(
+                                    file_path,
+                                    content_hash,
+                                    duplicate_strategy,
+                                    run_id=current_run_id,
+                                )
+                                if success:
+                                    should_process = False
+                                    skip_reason = (
+                                        "duplicate content (referenced existing blob)"
+                                    )
+                                    duplicate_files.append(file_path)
+                                    self.stats["duplicates_referenced"] = (
+                                        self.stats.get("duplicates_referenced", 0) + 1
+                                    )
+                            elif duplicate_strategy == "skip":
+                                should_process = False
+                                skip_reason = "duplicate content"
+                                duplicate_files.append(file_path)
+                            elif duplicate_strategy == "warn":
+                                self.logger.warning(
+                                    f"Duplicate content detected for {file_path}"
+                                )
+                            # For "process" strategy, continue processing
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Could not calculate hash for {file_path}: {str(e)}"
+                        )
+
+            # Add to appropriate list
+            if should_process:
+                filtered_files.append(file_path)
+            else:
+                skipped_files.append((file_path, skip_reason))
+                if metadata_manager:
+                    metadata_manager.mark_file_skipped(
+                        file_path, skip_reason or "unknown reason"
+                    )
+
+        # Log filtering results
+        if skipped_files:
+            self.logger.info(f"Skipped {len(skipped_files)} files:")
+            for file_path, reason in skipped_files[:5]:  # Show first 5
+                self.logger.info(f"  - {file_path}: {reason}")
+            if len(skipped_files) > 5:
+                self.logger.info(f"  ... and {len(skipped_files) - 5} more")
+
+        if duplicate_files:
+            self.logger.info(f"Found {len(duplicate_files)} duplicate files")
+
+        return filtered_files
 
     def _print_summary(self):
         """Print processing summary"""
@@ -111,6 +246,8 @@ class AdvancedConversionEngine:
         print(f"  Failed: {stats['failed']}")
         print(f"  Skipped: {stats['skipped']}")
         print(f"  Retries: {stats['retries']}")
+        if "duplicates_referenced" in stats and stats["duplicates_referenced"] > 0:
+            print(f"  Duplicates referenced: {stats['duplicates_referenced']}")
 
         # Add storage statistics if available
         if hasattr(self.pipeline, "get_storage_stats"):
@@ -211,4 +348,3 @@ class AdvancedConversionEngine:
         except Exception as e:
             self.logger.error(f"Failed to disable storage integration: {str(e)}")
             return False
-

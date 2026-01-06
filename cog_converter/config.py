@@ -37,9 +37,23 @@ class ConfigurationManager:
             "provider": "azure",  # azure, aws, gcp, or local
             "azure_connection_string": "",
             "container_name": "cog-conversions",
-            "metadata_file": "./conversion_metadata.json",
             "upload_successful_only": True,
             "preserve_local_cogs": False,
+        },
+        "metadata": {
+            "database_file": "conversion_metadata.db",
+            "create_backup": True,
+            "max_backups": 7,
+            "vacuum_frequency": "weekly",  # weekly, monthly, never
+            "consider_previous_runs": True,  # for multi-run support
+            "track_runs": True,
+        },
+        "processing": {
+            "skip_already_processed": True,
+            "detect_duplicates": True,
+            "duplicate_strategy": "reference",  # reference, skip, process, warn
+            "force_reprocess": False,
+            "track_file_changes": True,
         },
     }
 

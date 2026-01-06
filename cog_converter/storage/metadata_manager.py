@@ -40,15 +40,19 @@ class ConversionMetadataManager:
             self.logger.info(f"Creating new metadata file: {self.metadata_file}")
             return {
                 "conversions": [],
-                "version": "1.0",
+                "version": "1.1",  # Updated version for rerun support
                 "created_at": datetime.now().isoformat(),
+                "processing_state": {},  # Track file processing state
+                "content_hash_index": {},  # Index for duplicate detection
             }
         except Exception as e:
             self.logger.error(f"Error loading metadata: {str(e)}")
             return {
                 "conversions": [],
-                "version": "1.0",
+                "version": "1.1",
                 "created_at": datetime.now().isoformat(),
+                "processing_state": {},
+                "content_hash_index": {},
             }
 
     def _save_metadata(self) -> bool:
@@ -105,6 +109,13 @@ class ConversionMetadataManager:
             os.path.getsize(cog_file_path) if os.path.exists(cog_file_path) else 0
         )
 
+        # Get file modification time
+        file_mtime = (
+            os.path.getmtime(original_file_path)
+            if os.path.exists(original_file_path)
+            else 0
+        )
+
         # Create conversion record
         record = {
             "conversion_id": len(self.metadata["conversions"]) + 1,
@@ -116,6 +127,7 @@ class ConversionMetadataManager:
             "original_file_size": original_size,
             "cog_file_size": cog_size,
             "conversion_timestamp": datetime.now().isoformat(),
+            "file_modification_time": file_mtime,
             "status": "completed",
         }
 
@@ -126,6 +138,12 @@ class ConversionMetadataManager:
         # Add to metadata
         self.metadata["conversions"].append(record)
         self.metadata["last_updated"] = datetime.now().isoformat()
+
+        # Update processing state
+        self._update_processing_state(original_file_path, content_hash, "completed")
+
+        # Update content hash index for duplicate detection
+        self._update_content_hash_index(original_file_path, content_hash)
 
         # Save metadata
         if not self._save_metadata():
@@ -302,7 +320,10 @@ class ConversionMetadataManager:
         return self.metadata
 
     def create_conversion_record_from_upload(
-        self, original_file_path: str, upload_result: Dict[str, Any]
+        self,
+        original_file_path: str,
+        upload_result: Dict[str, Any],
+        run_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Create a conversion record from an upload result dictionary.
@@ -310,6 +331,7 @@ class ConversionMetadataManager:
         Args:
             original_file_path: Original file path
             upload_result: Upload result from BlobStorageUploader.upload_with_metadata()
+            run_id: Optional run ID for tracking
 
         Returns:
             Created conversion record
@@ -329,7 +351,363 @@ class ConversionMetadataManager:
                     "content_hash"
                 ],  # Store upload hash too
             },
+            run_id=run_id,
         )
+
+    def _update_processing_state(
+        self, file_path: str, content_hash: str, status: str
+    ) -> None:
+        """
+        Update the processing state for a file.
+
+        Args:
+            file_path: Path to the file
+            content_hash: Content hash of the file
+            status: Processing status (completed, failed, skipped)
+        """
+        # Ensure processing_state exists
+        if "processing_state" not in self.metadata:
+            self.metadata["processing_state"] = {}
+
+        # Update or add processing state
+        self.metadata["processing_state"][file_path] = {
+            "status": status,
+            "content_hash": content_hash,
+            "last_processed": datetime.now().isoformat(),
+            "file_modification_time": (
+                os.path.getmtime(file_path) if os.path.exists(file_path) else 0
+            ),
+        }
+
+    def _update_content_hash_index(self, file_path: str, content_hash: str) -> None:
+        """
+        Update the content hash index for duplicate detection.
+
+        Args:
+            file_path: Path to the file
+            content_hash: Content hash of the file
+        """
+        # Ensure content_hash_index exists
+        if "content_hash_index" not in self.metadata:
+            self.metadata["content_hash_index"] = {}
+
+        # Add file to content hash index
+        if content_hash not in self.metadata["content_hash_index"]:
+            self.metadata["content_hash_index"][content_hash] = []
+
+        # Avoid duplicates in the index
+        if file_path not in self.metadata["content_hash_index"][content_hash]:
+            self.metadata["content_hash_index"][content_hash].append(file_path)
+
+    def should_process_file(self, file_path: str, force: bool = False) -> bool:
+        """
+        Determine if a file should be processed based on its state and modification time.
+
+        Args:
+            file_path: Path to the file to check
+            force: If True, force processing regardless of previous state
+
+        Returns:
+            True if file should be processed, False if it can be skipped
+        """
+        if force:
+            return True
+
+        # Check if file exists
+        if not os.path.exists(file_path):
+            return False
+
+        # Get current file modification time
+        current_mtime = os.path.getmtime(file_path)
+
+        # Check processing state
+        processing_state = self.metadata.get("processing_state", {}).get(file_path)
+
+        if processing_state is None:
+            # File has never been processed
+            return True
+
+        # Check if file has been modified since last processing
+        last_mtime = processing_state.get("file_modification_time", 0)
+
+        if current_mtime > last_mtime:
+            # File has been modified since last processing
+            return True
+
+        # Check if processing was successful
+        if processing_state.get("status") == "completed":
+            # File was successfully processed and hasn't changed
+            return False
+
+        # For failed or skipped files, we might want to retry
+        return True
+
+    def is_duplicate_content(self, content_hash: str, file_path: str) -> bool:
+        """
+        Check if content with the given hash has already been processed.
+
+        Args:
+            content_hash: Content hash to check
+            file_path: Current file path (for comparison)
+
+        Returns:
+            True if duplicate content exists, False otherwise
+        """
+        content_hash_index = self.metadata.get("content_hash_index", {})
+
+        if content_hash not in content_hash_index:
+            return False
+
+        # Check if this exact file is already in the index
+        files_with_same_hash = content_hash_index[content_hash]
+
+        # If only this file has this hash, it's not a duplicate
+        if len(files_with_same_hash) <= 1:
+            return False
+
+        # If multiple files have the same hash, it's a duplicate
+        return True
+
+    def get_duplicate_files(self, content_hash: str) -> List[str]:
+        """
+        Get all files that have the same content hash.
+
+        Args:
+            content_hash: Content hash to look up
+
+        Returns:
+            List of file paths with the same content hash
+        """
+        content_hash_index = self.metadata.get("content_hash_index", {})
+        return content_hash_index.get(content_hash, [])
+
+    def get_existing_blob_for_content(
+        self, content_hash: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get existing blob information for content with the given hash.
+
+        Args:
+            content_hash: Content hash to look up
+
+        Returns:
+            Dictionary with blob_path and blob_url if found, None otherwise
+        """
+        # Look for any completed conversion with this content hash
+        for conversion in self.metadata.get("conversions", []):
+            if (
+                conversion.get("status") == "completed"
+                and conversion.get("content_hash") == content_hash
+                and conversion.get("blob_path")
+            ):
+                return {
+                    "blob_path": conversion["blob_path"],
+                    "blob_url": conversion.get("blob_url"),
+                    "original_conversion_id": conversion["conversion_id"],
+                    "original_file_path": conversion["original_file_path"],
+                }
+
+        return None
+
+    def create_duplicate_reference(
+        self,
+        original_file_path: str,
+        existing_blob_info: Dict[str, Any],
+        content_hash: str,
+        additional_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create a metadata record for a duplicate file that references an existing blob.
+
+        Args:
+            original_file_path: Path to the duplicate file
+            existing_blob_info: Information about the existing blob to reference
+            content_hash: Content hash of the file
+            additional_metadata: Additional metadata to include
+
+        Returns:
+            The created duplicate reference record
+        """
+        # Calculate file size
+        file_size = (
+            os.path.getsize(original_file_path)
+            if os.path.exists(original_file_path)
+            else 0
+        )
+
+        # Get file modification time
+        file_mtime = (
+            os.path.getmtime(original_file_path)
+            if os.path.exists(original_file_path)
+            else 0
+        )
+
+        # Create duplicate reference record
+        record = {
+            "conversion_id": len(self.metadata["conversions"]) + 1,
+            "original_file_path": original_file_path,
+            "cog_file_path": "",  # No separate COG file created
+            "blob_path": existing_blob_info["blob_path"],
+            "content_hash": content_hash,
+            "blob_url": existing_blob_info["blob_url"],
+            "original_file_size": file_size,
+            "cog_file_size": 0,  # No separate COG file
+            "conversion_timestamp": datetime.now().isoformat(),
+            "file_modification_time": file_mtime,
+            "status": "duplicate_referenced",
+            "duplicate_of_conversion_id": existing_blob_info["original_conversion_id"],
+            "duplicate_of_file_path": existing_blob_info["original_file_path"],
+            "is_duplicate": True,
+        }
+
+        # Add additional metadata
+        if additional_metadata:
+            record.update(additional_metadata)
+
+        # Add to metadata
+        self.metadata["conversions"].append(record)
+        self.metadata["last_updated"] = datetime.now().isoformat()
+
+        # Update processing state
+        self._update_processing_state(
+            original_file_path, content_hash, "duplicate_referenced"
+        )
+
+        # Update content hash index for duplicate detection
+        self._update_content_hash_index(original_file_path, content_hash)
+
+        # Save metadata
+        if not self._save_metadata():
+            record["status"] = "metadata_save_failed"
+
+        self.logger.info(
+            f"Created duplicate reference: {original_file_path} -> {existing_blob_info['blob_path']} "
+            f"(duplicate of {existing_blob_info['original_file_path']})"
+        )
+
+        return record
+
+    def handle_duplicate_file(
+        self,
+        file_path: str,
+        content_hash: str,
+        duplicate_strategy: str = "reference",
+        additional_metadata: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        Handle a duplicate file according to the specified strategy.
+
+        Args:
+            file_path: Path to the duplicate file
+            content_hash: Content hash of the file
+            duplicate_strategy: Strategy to use (reference, skip, process)
+            additional_metadata: Additional metadata to include
+
+        Returns:
+            True if handled successfully, False otherwise
+        """
+        # Check if we have an existing blob for this content
+        existing_blob = self.get_existing_blob_for_content(content_hash)
+
+        if not existing_blob:
+            # No existing blob found, this shouldn't happen if duplicate detection is working
+            self.logger.warning(
+                f"No existing blob found for duplicate content hash {content_hash}"
+            )
+            return False
+
+        if duplicate_strategy == "reference":
+            # Create a reference to the existing blob
+            self.create_duplicate_reference(
+                original_file_path=file_path,
+                existing_blob_info=existing_blob,
+                content_hash=content_hash,
+                additional_metadata=additional_metadata,
+            )
+            return True
+
+        elif duplicate_strategy == "skip":
+            # Just mark as skipped
+            self.mark_file_skipped(file_path, "duplicate content (skipped)")
+            return True
+
+        elif duplicate_strategy == "process":
+            # This would be handled by normal processing
+            return False
+
+        else:
+            self.logger.warning(f"Unknown duplicate strategy: {duplicate_strategy}")
+            return False
+
+    def get_processing_state(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the processing state for a specific file.
+
+        Args:
+            file_path: Path to the file
+
+        Returns:
+            Processing state dictionary or None if not found
+        """
+        return self.metadata.get("processing_state", {}).get(file_path)
+
+    def mark_file_skipped(self, file_path: str, reason: str) -> None:
+        """
+        Mark a file as skipped with a reason.
+
+        Args:
+            file_path: Path to the file
+            reason: Reason for skipping
+        """
+        # Calculate content hash for tracking
+        try:
+            content_hash = calculate_content_hash(file_path)
+        except Exception:
+            content_hash = "unknown"
+
+        # Update processing state
+        self._update_processing_state(file_path, content_hash, "skipped")
+
+        # Add to content hash index
+        self._update_content_hash_index(file_path, content_hash)
+
+        # Add failed conversion record
+        self.add_failed_conversion(
+            original_file_path=file_path,
+            error_message=f"Skipped: {reason}",
+            error_type="skipped",
+        )
+
+        self._save_metadata()
+
+    def mark_file_failed(self, file_path: str, error_message: str) -> None:
+        """
+        Mark a file as failed with an error message.
+
+        Args:
+            file_path: Path to the file
+            error_message: Error message
+        """
+        # Calculate content hash for tracking
+        try:
+            content_hash = calculate_content_hash(file_path)
+        except Exception:
+            content_hash = "unknown"
+
+        # Update processing state
+        self._update_processing_state(file_path, content_hash, "failed")
+
+        # Add to content hash index
+        self._update_content_hash_index(file_path, content_hash)
+
+        # Add failed conversion record
+        self.add_failed_conversion(
+            original_file_path=file_path,
+            error_message=error_message,
+            error_type="processing_failed",
+        )
+
+        self._save_metadata()
 
 
 class SimpleMetadataTracker:

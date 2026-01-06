@@ -12,7 +12,7 @@ from .converters.geotiff_converter import GeoTiffToCogConverter
 from .converters.worldimage_converter import WorldImageToCogConverter
 from .error_handler import ErrorHandler
 from .storage.blob_uploader import BlobStorageUploader, MockBlobStorageUploader
-from .storage.metadata_manager import ConversionMetadataManager
+from .storage.sqlite_metadata_manager import SQLiteMetadataManager
 
 
 class AdvancedConversionPipeline:
@@ -53,6 +53,7 @@ class AdvancedConversionPipeline:
             "retries": 0,
             "uploaded": 0,
             "upload_failed": 0,
+            "duplicates_referenced": 0,
         }
 
     def _initialize_storage(self):
@@ -87,12 +88,13 @@ class AdvancedConversionPipeline:
                 )
                 self.uploader = MockBlobStorageUploader()
 
-            # Initialize metadata manager
-            metadata_file = storage_config.get(
-                "metadata_file", "conversion_metadata.json"
+            # Initialize metadata manager (SQLite only)
+            metadata_config = self.config.get("metadata", {})
+            database_file = metadata_config.get(
+                "database_file", "conversion_metadata.db"
             )
-            self.metadata_manager = ConversionMetadataManager(metadata_file)
-            self.logger.info(f"Storage integration enabled with {provider} provider")
+            self.metadata_manager = SQLiteMetadataManager(database_file)
+            self.logger.info(f"SQLite metadata database initialized: {database_file}")
 
         except Exception as e:
             self.logger.error(f"Failed to initialize storage: {str(e)}")
@@ -151,16 +153,23 @@ class AdvancedConversionPipeline:
                 else:
                     self.stats["failed"] += 1
                     self.error_handler.log_exception(file_path, e)
+
+                    # Mark file as failed in metadata if available
+                    if self.metadata_manager:
+                        self.metadata_manager.mark_file_failed(file_path, str(e))
+
                     return False
 
         # If conversion was successful and storage is enabled, upload to blob storage
         if conversion_success and self.storage_enabled and cog_file_path:
-            return self._handle_post_conversion(file_path, cog_file_path)
+            return self._handle_post_conversion(
+                file_path, cog_file_path, getattr(self, "current_run_id", None)
+            )
 
         return conversion_success
 
     def _handle_post_conversion(
-        self, original_file_path: str, cog_file_path: str
+        self, original_file_path: str, cog_file_path: str, run_id: Optional[int] = None
     ) -> bool:
         """
         Handle post-conversion tasks: upload to blob storage and record metadata.
@@ -168,6 +177,7 @@ class AdvancedConversionPipeline:
         Args:
             original_file_path: Path to original file
             cog_file_path: Path to converted COG file
+            run_id: Optional run ID for tracking
 
         Returns:
             True if upload and metadata recording succeeded, False otherwise
@@ -189,7 +199,9 @@ class AdvancedConversionPipeline:
 
             # Record conversion in metadata
             self.metadata_manager.create_conversion_record_from_upload(
-                original_file_path=original_file_path, upload_result=upload_result
+                original_file_path=original_file_path,
+                upload_result=upload_result,
+                run_id=run_id,
             )
 
             # Optionally clean up local COG file
@@ -247,7 +259,7 @@ class AdvancedConversionPipeline:
         """Reset statistics counters"""
         self.stats = self._initialize_stats()
 
-    def get_metadata_manager(self) -> Optional[ConversionMetadataManager]:
+    def get_metadata_manager(self):
         """Get the metadata manager instance"""
         return self.metadata_manager
 

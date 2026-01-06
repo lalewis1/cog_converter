@@ -39,6 +39,62 @@ def main():
         "--container", help="Blob storage container name", default="cog-conversions"
     )
 
+    # Efficient rerun options
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force reprocessing of all files, ignoring previous state",
+    )
+
+    parser.add_argument(
+        "--skip-processed",
+        action="store_true",
+        help="Skip files that have already been successfully processed",
+    )
+
+    parser.add_argument(
+        "--no-skip-processed",
+        dest="skip_processed",
+        action="store_false",
+        help="Process all files, including previously processed ones",
+    )
+
+    parser.add_argument(
+        "--detect-duplicates",
+        action="store_true",
+        help="Detect and handle duplicate files based on content hash",
+    )
+
+    parser.add_argument(
+        "--no-detect-duplicates",
+        dest="detect_duplicates",
+        action="store_false",
+        help="Disable duplicate detection",
+    )
+
+    parser.add_argument(
+        "--duplicate-strategy",
+        choices=["reference", "skip", "process", "warn"],
+        default="reference",
+        help="Strategy for handling duplicate files (reference, skip, process, warn)",
+    )
+
+    parser.add_argument(
+        "--track-changes",
+        action="store_true",
+        help="Track file changes and only reprocess modified files",
+    )
+
+    parser.add_argument(
+        "--no-track-changes",
+        dest="track_changes",
+        action="store_false",
+        help="Disable file change tracking",
+    )
+
+    # Set defaults
+    parser.set_defaults(skip_processed=True, detect_duplicates=True, track_changes=True)
+
     args = parser.parse_args()
 
     # Create engine configuration
@@ -56,6 +112,15 @@ def main():
             "azure_connection_string": args.connection_string or "",
             "container_name": args.container,
         }
+
+    # Handle processing configuration for efficient rerunning
+    engine_config["processing"] = {
+        "skip_already_processed": args.skip_processed,
+        "detect_duplicates": args.detect_duplicates,
+        "duplicate_strategy": args.duplicate_strategy,
+        "force_reprocess": args.force,
+        "track_file_changes": args.track_changes,
+    }
 
     # Create and run engine
     engine = AdvancedConversionEngine(config=engine_config, config_file=args.config)
