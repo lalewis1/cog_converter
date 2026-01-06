@@ -43,8 +43,6 @@ class ConfigurationManager:
         "metadata": {
             "enabled": True,
             "database_file": "conversion_metadata.db",
-            "create_backup": True,
-            "max_backups": 7,
             "vacuum_frequency": "weekly",  # weekly, monthly, never
             "consider_previous_runs": True,  # for multi-run support
             "track_runs": True,

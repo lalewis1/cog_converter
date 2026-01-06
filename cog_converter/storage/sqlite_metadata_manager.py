@@ -1318,57 +1318,7 @@ class SQLiteMetadataManager:
             }
 
     # Database maintenance methods
-    def create_backup(self) -> bool:
-        """
-        Create database backup.
 
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            backup_dir = os.path.join(os.path.dirname(self.database_file), "backups")
-            os.makedirs(backup_dir, exist_ok=True)
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_file = os.path.join(backup_dir, f"metadata_backup_{timestamp}.db")
-
-            # Use sqlite3 backup API for atomic backup
-            with sqlite3.connect(backup_file) as backup_conn:
-                self.connection.backup(backup_conn)
-
-            self.logger.info(f"Created database backup: {backup_file}")
-
-            # Clean up old backups
-            self._cleanup_old_backups(backup_dir)
-
-            return True
-
-        except Exception as e:
-            self.logger.error(f"Backup failed: {str(e)}")
-            return False
-
-    def _cleanup_old_backups(self, backup_dir: str):
-        """Clean up old backup files."""
-        try:
-            max_backups = 7  # Default value
-            backups = []
-
-            for filename in os.listdir(backup_dir):
-                if filename.startswith("metadata_backup_") and filename.endswith(".db"):
-                    file_path = os.path.join(backup_dir, filename)
-                    backups.append((os.path.getmtime(file_path), file_path))
-
-            # Sort by modification time (oldest first)
-            backups.sort(key=lambda x: x[0])
-
-            # Delete oldest backups if we exceed max_backups
-            while len(backups) > max_backups:
-                os.remove(backups[0][1])
-                self.logger.info(f"Removed old backup: {backups[0][1]}")
-                backups.pop(0)
-
-        except Exception as e:
-            self.logger.error(f"Backup cleanup failed: {str(e)}")
 
     def vacuum_database(self) -> bool:
         """
@@ -1389,7 +1339,7 @@ class SQLiteMetadataManager:
 
     def export_to_json(self, output_file: str) -> bool:
         """
-        Export database contents to JSON file for backup/compatibility.
+        Export database contents to JSON file for compatibility.
 
         Args:
             output_file: Path to output JSON file
