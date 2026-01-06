@@ -31,7 +31,7 @@ class ConfigurationManager:
             "retry_delay": 5,
             "error_log": "conversion_errors.log",
         },
-        "performance": {"max_workers": 4, "memory_limit_mb": 4096},
+        "performance": {},
         "storage": {
             "enabled": False,
             "provider": "azure",  # azure, aws, gcp, or local

@@ -11,7 +11,7 @@ including blob storage integration, duplicate detection, and efficient rerunning
 - **Metadata Tracking**: SQLite database tracks conversion history and statistics
 - **Error Handling**: Robust retry mechanism with detailed error logging
 - **Configuration Management**: JSON-based configuration with CLI overrides
-- **Performance Optimization**: Parallel processing with configurable worker limits
+- **Performance Optimization**: Efficient file processing and resource management
 
 ## Installation
 
@@ -83,7 +83,7 @@ Run `python -m cog_converter --default-config` for a complete example with all a
 - **`cog_parameters`**: COG creation parameters (compression, blocksize, etc.)
 - **`supported_formats`**: File extensions to recognize as raster files
 - **`error_handling`**: Retry settings and error logging
-- **`performance`**: Worker count and memory limits
+- **`performance`**: Performance-related settings (currently empty)
 - **`storage`**: Blob storage configuration
 - **`metadata`**: Database settings for tracking conversions
 - **`processing`**: Skip processed files, detect duplicates, etc.
@@ -203,12 +203,11 @@ Configure performance settings in your config file:
 
 ```json
 {
-  "performance": {
-    "max_workers": 8,        # Number of parallel workers
-    "memory_limit_mb": 8192  # Memory limit per worker
-  }
+  "performance": {}
 }
 ```
+
+Note: Performance settings are currently empty as parallel processing and memory limits are not yet implemented.
 
 ## Error Handling
 
