@@ -108,7 +108,7 @@ class AdvancedConversionEngine:
         # Process files
         for i, file_path in enumerate(files_to_process, 1):
             self.logger.info(f"Processing {i}/{len(files_to_process)}: {file_path}")
-            success = self.pipeline.process_file(file_path)
+            success = self.pipeline.process_file(file_path, self.current_run_id)
             if success:
                 self.logger.info("  ✓ Successfully converted")
             else:
@@ -143,17 +143,14 @@ class AdvancedConversionEngine:
         """
         # Get processing configuration
         skip_processed = self.config.get("processing.skip_already_processed", True)
-        detect_duplicates = self.config.get("processing.detect_duplicates", True)
         force_reprocess = self.config.get("processing.force_reprocess", False)
         track_changes = self.config.get("processing.track_file_changes", True)
-        duplicate_strategy = self.config.get("processing.duplicate_strategy", "skip")
 
         # Get metadata manager if available
         metadata_manager = self.get_metadata_manager()
 
         filtered_files = []
         skipped_files = []
-        duplicate_files = []
 
         for file_path in files:
             should_process = True
@@ -174,44 +171,6 @@ class AdvancedConversionEngine:
                         should_process = False
                         skip_reason = "already processed and unchanged"
 
-                # Check for duplicates if enabled
-                if should_process and detect_duplicates:
-                    try:
-                        content_hash = calculate_content_hash(file_path)
-                        if metadata_manager.is_duplicate_content(
-                            content_hash, file_path
-                        ):
-                            if duplicate_strategy == "reference":
-                                # Create reference to existing blob instead of reprocessing
-                                success = metadata_manager.handle_duplicate_file(
-                                    file_path,
-                                    content_hash,
-                                    duplicate_strategy,
-                                    run_id=current_run_id,
-                                )
-                                if success:
-                                    should_process = False
-                                    skip_reason = (
-                                        "duplicate content (referenced existing blob)"
-                                    )
-                                    duplicate_files.append(file_path)
-                                    self.stats["duplicates_referenced"] = (
-                                        self.stats.get("duplicates_referenced", 0) + 1
-                                    )
-                            elif duplicate_strategy == "skip":
-                                should_process = False
-                                skip_reason = "duplicate content"
-                                duplicate_files.append(file_path)
-                            elif duplicate_strategy == "warn":
-                                self.logger.warning(
-                                    f"Duplicate content detected for {file_path}"
-                                )
-                            # For "process" strategy, continue processing
-                    except Exception as e:
-                        self.logger.warning(
-                            f"Could not calculate hash for {file_path}: {str(e)}"
-                        )
-
             # Add to appropriate list
             if should_process:
                 filtered_files.append(file_path)
@@ -229,9 +188,6 @@ class AdvancedConversionEngine:
                 self.logger.info(f"  - {file_path}: {reason}")
             if len(skipped_files) > 5:
                 self.logger.info(f"  ... and {len(skipped_files) - 5} more")
-
-        if duplicate_files:
-            self.logger.info(f"Found {len(duplicate_files)} duplicate files")
 
         return filtered_files
 
@@ -275,7 +231,7 @@ class AdvancedConversionEngine:
             # Generate output path automatically
             output_path = self.pipeline._generate_output_path(input_path)
 
-        return self.pipeline.process_file(input_path)
+        return self.pipeline.process_file(input_path, getattr(self, "current_run_id", None))
 
     def get_config(self) -> dict:
         """Get current configuration"""

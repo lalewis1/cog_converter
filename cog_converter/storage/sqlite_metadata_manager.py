@@ -404,7 +404,7 @@ class SQLiteMetadataManager:
         try:
             cursor.execute(
                 """
-                INSERT OR REPLACE INTO processing_state 
+                INSERT OR REPLACE INTO processing_state
                 (file_path, status, content_hash, last_processed, file_modification_time, run_id)
                 VALUES (?, ?, ?, ?, ?, ?)
             """,
@@ -431,7 +431,7 @@ class SQLiteMetadataManager:
         try:
             cursor.execute(
                 """
-                INSERT OR IGNORE INTO content_hash_index 
+                INSERT OR IGNORE INTO content_hash_index
                 (content_hash, file_path)
                 VALUES (?, ?)
             """,
@@ -708,7 +708,7 @@ class SQLiteMetadataManager:
             return True
 
         # Check if processing was successful
-        if state.get("status") == "completed":
+        if state.get("status") in ["completed", "duplicate_referenced"]:
             # File was successfully processed and hasn't changed
             # Update processing state to current run but still skip
             if current_run_id:
@@ -836,7 +836,7 @@ class SQLiteMetadataManager:
             # Count files with this content hash (excluding the current file_path if it exists)
             cursor.execute(
                 """
-                SELECT COUNT(*) FROM content_hash_index 
+                SELECT COUNT(*) FROM content_hash_index
                 WHERE content_hash = ? AND file_path != ?
             """,
                 (content_hash, file_path),
