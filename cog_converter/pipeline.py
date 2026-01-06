@@ -119,9 +119,8 @@ class ConversionPipeline:
         """Process a single file through the conversion pipeline"""
         self.stats["total_files"] += 1
 
-        # Check for duplicates before processing
-        if self._should_skip_duplicate(file_path, run_id):
-            return False
+        # Note: Duplicate detection moved to after successful conversion
+        # This ensures the first file gets uploaded, and duplicates reference it
 
         # Find appropriate converter
         converter = None
@@ -181,76 +180,115 @@ class ConversionPipeline:
 
         # If conversion was successful and storage is enabled, upload to blob storage
         if conversion_success and self.storage_enabled and cog_file_path:
-            return self._handle_post_conversion(file_path, cog_file_path, run_id)
+            upload_success = self._handle_post_conversion(file_path, cog_file_path, run_id)
+            if upload_success:
+                # Check for duplicates after successful upload
+                content_hash = calculate_content_hash(file_path)
+                self._handle_duplicate_after_conversion(file_path, content_hash, run_id)
+            return upload_success
         elif conversion_success and self.metadata_enabled and cog_file_path:
             # If only metadata is enabled (no storage), still record the conversion
-            return self._handle_metadata_only(file_path, cog_file_path, run_id)
+            metadata_success = self._handle_metadata_only(file_path, cog_file_path, run_id)
+            if metadata_success:
+                # Check for duplicates after successful conversion
+                content_hash = calculate_content_hash(file_path)
+                self._handle_duplicate_after_conversion(file_path, content_hash, run_id)
+            return metadata_success
 
         return conversion_success
 
-    def _should_skip_duplicate(
-        self, file_path: str, run_id: Optional[int] = None
+    def _handle_duplicate_after_conversion(
+        self, file_path: str, content_hash: str, run_id: Optional[int] = None
     ) -> bool:
         """
-        Check if a file should be skipped due to duplicate content.
+        Handle duplicate content AFTER successful conversion.
+        This ensures the first file gets uploaded, and subsequent duplicates reference it.
 
         Args:
-            file_path: Path to the file to check
+            file_path: Path to the file that was just converted
+            content_hash: Content hash of the file
             run_id: Optional run ID for tracking
 
         Returns:
-            True if file should be skipped, False otherwise
+            True if this was a duplicate and was handled, False otherwise
         """
         if not self.metadata_enabled or not self.metadata_manager:
             return False
 
-        # Get duplicate detection configuration
+        # Simplified duplicate handling - always use "reference" strategy
         detect_duplicates = self.config.get("processing", {}).get(
             "detect_duplicates", True
-        )
-        duplicate_strategy = self.config.get("processing", {}).get(
-            "duplicate_strategy", "skip"
         )
 
         if not detect_duplicates:
             return False
 
         try:
-            # Calculate content hash
-            content_hash = calculate_content_hash(file_path)
-
-            # Check if this content already exists
+            # Check if this content already exists (from a different file)
+            self.logger.debug(f"Checking for duplicates of {file_path} with hash {content_hash}")
             if self.metadata_manager.is_duplicate_content(content_hash, file_path):
-                if duplicate_strategy == "reference":
-                    # Create reference to existing blob
-                    success = self.metadata_manager.handle_duplicate_file(
-                        file_path,
-                        content_hash,
-                        duplicate_strategy,
-                        run_id=run_id,
+                # Get existing blob info
+                existing_blob = self.metadata_manager.get_existing_blob_for_content(content_hash)
+                
+                if existing_blob:
+                    # Additional safety check: ensure we're not referencing ourselves
+                    if existing_blob['original_file_path'] == file_path:
+                        self.logger.warning(
+                            f"Potential self-reference detected for {file_path} - skipping duplicate handling"
+                        )
+                        return False
+                    
+                    # Check if this file already has a conversion record (it should, since we just processed it)
+                    conn = self.metadata_manager._get_connection()
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT conversion_id FROM conversions WHERE original_file_path = ?",
+                        (file_path,)
                     )
-                    if success:
+                    existing_record = cursor.fetchone()
+                    
+                    if existing_record:
+                        # Update the existing record to be a duplicate reference
+                        conversion_id = existing_record[0]
+                        
+                        # Log detailed information about the duplicate reference
+                        self.logger.info(
+                            f"Creating duplicate reference: {file_path} -> {existing_blob['original_file_path']} "
+                            f"(blob: {existing_blob['blob_path']})"
+                        )
+                        
+                        cursor.execute(
+                            """
+                            UPDATE conversions SET
+                                status = 'duplicate_referenced',
+                                duplicate_of_conversion_id = ?,
+                                duplicate_of_file_path = ?,
+                                is_duplicate = TRUE,
+                                blob_path = ?,
+                                blob_url = ?
+                            WHERE conversion_id = ?
+                            """,
+                            (
+                                existing_blob['original_conversion_id'],
+                                existing_blob['original_file_path'],
+                                existing_blob['blob_path'],
+                                existing_blob['blob_url'],
+                                conversion_id
+                            )
+                        )
+                        conn.commit()
+                        
                         self.stats["duplicates_referenced"] = (
                             self.stats.get("duplicates_referenced", 0) + 1
                         )
                         self.logger.info(
-                            f"Skipped duplicate file {file_path} - referenced existing blob"
+                            f"Duplicate file {file_path} - referenced existing blob {existing_blob['blob_path']}"
                         )
                         return True
-                elif duplicate_strategy == "skip":
-                    # Just skip the file
-                    self.stats["skipped"] += 1
-                    self.logger.info(f"Skipped duplicate file {file_path}")
-                    return True
-                elif duplicate_strategy == "warn":
-                    self.logger.warning(
-                        f"Duplicate content detected for {file_path} - processing anyway"
-                    )
-                # For "process" strategy, continue processing
 
         except Exception as e:
             self.logger.warning(
-                f"Could not check for duplicates for {file_path}: {str(e)}"
+                f"Could not handle duplicate for {file_path}: {str(e)}"
             )
 
         return False
@@ -279,12 +317,6 @@ class ConversionPipeline:
             return False
 
         try:
-            # Check for duplicates before uploading and recording
-            if self._should_handle_duplicate_after_conversion(
-                original_file_path, cog_file_path, run_id
-            ):
-                return True
-
             # Upload to blob storage with metadata
             upload_result = self.uploader.upload_with_metadata(
                 local_file_path=cog_file_path, original_file_path=original_file_path
@@ -346,12 +378,6 @@ class ConversionPipeline:
             return False
 
         try:
-            # Check for duplicates
-            if self._should_handle_duplicate_after_conversion(
-                original_file_path, cog_file_path, run_id
-            ):
-                return True
-
             # Record conversion in metadata (without upload info)
             self.metadata_manager.create_conversion_record(
                 original_file_path=original_file_path,
@@ -380,101 +406,8 @@ class ConversionPipeline:
 
             return False
 
-    def _should_handle_duplicate_after_conversion(
-        self,
-        original_file_path: str,
-        cog_file_path: str,
-        run_id: Optional[int] = None,
-    ) -> bool:
-        """
-        Check if a converted file should be handled as a duplicate after conversion.
-        This is useful when duplicate detection is done after conversion (e.g., when
-        the conversion process itself might change the content hash).
-
-        Args:
-            original_file_path: Path to the original file
-            cog_file_path: Path to the converted COG file
-            run_id: Optional run ID for tracking
-
-        Returns:
-            True if duplicate was handled, False otherwise
-        """
-        if not self.metadata_enabled or not self.metadata_manager:
-            return False
-
-        # Get duplicate detection configuration
-        detect_duplicates = self.config.get("processing", {}).get(
-            "detect_duplicates", True
-        )
-        duplicate_strategy = self.config.get("processing", {}).get(
-            "duplicate_strategy", "skip"
-        )
-
-        if not detect_duplicates:
-            return False
-
-        try:
-            # Calculate content hash of the original file (not the COG)
-            content_hash = calculate_content_hash(original_file_path)
-
-            # Check if this content already exists
-            if self.metadata_manager.is_duplicate_content(
-                content_hash, original_file_path
-            ):
-                if duplicate_strategy == "reference":
-                    # Create reference to existing blob
-                    success = self.metadata_manager.handle_duplicate_file(
-                        original_file_path,
-                        content_hash,
-                        duplicate_strategy,
-                        run_id=run_id,
-                    )
-                    if success:
-                        self.stats["duplicates_referenced"] = (
-                            self.stats.get("duplicates_referenced", 0) + 1
-                        )
-                        self.logger.info(
-                            f"Handled duplicate file {original_file_path} after conversion - referenced existing blob"
-                        )
-
-                        # Clean up the local COG file since we're referencing existing blob
-                        try:
-                            os.remove(cog_file_path)
-                            self.logger.debug(
-                                f"Removed duplicate COG file: {cog_file_path}"
-                            )
-                        except Exception as e:
-                            self.logger.warning(
-                                f"Could not remove duplicate COG file: {str(e)}"
-                            )
-
-                        return True
-                elif duplicate_strategy == "skip":
-                    # Just skip creating metadata for this file
-                    self.stats["skipped"] += 1
-                    self.logger.info(
-                        f"Skipped creating metadata for duplicate file {original_file_path}"
-                    )
-
-                    # Clean up the local COG file
-                    try:
-                        os.remove(cog_file_path)
-                        self.logger.debug(
-                            f"Removed duplicate COG file: {cog_file_path}"
-                        )
-                    except Exception as e:
-                        self.logger.warning(
-                            f"Could not remove duplicate COG file: {str(e)}"
-                        )
-
-                    return True
-
-        except Exception as e:
-            self.logger.warning(
-                f"Could not check for duplicates after conversion for {original_file_path}: {str(e)}"
-            )
-
-        return False
+    # Removed _should_handle_duplicate_after_conversion method
+    # as we now use single-point duplicate detection before processing
 
     def _generate_output_path(self, input_path: str) -> str:
         """Generate output path while preserving directory structure"""

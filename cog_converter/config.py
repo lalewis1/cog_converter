@@ -50,7 +50,6 @@ class ConfigurationManager:
         "processing": {
             "skip_already_processed": True,
             "detect_duplicates": True,
-            "duplicate_strategy": "reference",  # reference, skip, process, warn
             "force_reprocess": False,
             "track_file_changes": True,
         },

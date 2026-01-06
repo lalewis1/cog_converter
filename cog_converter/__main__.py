@@ -89,13 +89,6 @@ def main():
     )
 
     parser.add_argument(
-        "--duplicate-strategy",
-        choices=["reference", "skip", "process", "warn"],
-        default="reference",
-        help="Strategy for handling duplicate files (reference, skip, process, warn)",
-    )
-
-    parser.add_argument(
         "--track-changes",
         action="store_true",
         help="Track file changes and only reprocess modified files",
@@ -167,9 +160,7 @@ def main():
     if hasattr(args, "force") and args.force:
         processing_config["force_reprocess"] = args.force
 
-    # For duplicate_strategy, we can use the value directly since it has an explicit default
-    if hasattr(args, "duplicate_strategy"):
-        processing_config["duplicate_strategy"] = args.duplicate_strategy
+    # Note: duplicate_strategy has been removed - always use "reference" strategy
 
     if processing_config:
         engine_config["processing"] = processing_config

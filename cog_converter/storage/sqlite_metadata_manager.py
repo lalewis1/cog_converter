@@ -701,15 +701,16 @@ class SQLiteMetadataManager:
             )
 
     def should_process_file(
-        self, file_path: str, force: bool = False, current_run_id: Optional[int] = None
+        self, file_path: str, force: bool = False, skip_already_processed: bool = True
     ) -> bool:
         """
-        Determine if a file should be processed based on its state and modification time.
+        Determine if a file should be processed based on its content hash and modification time.
+        This simplified version focuses on duplicate detection and file changes.
 
         Args:
             file_path: Path to the file to check
             force: If True, force processing regardless of previous state
-            current_run_id: Current run ID for tracking
+            skip_already_processed: If True, skip files that have been successfully processed before
 
         Returns:
             True if file should be processed, False if it can be skipped
@@ -722,27 +723,69 @@ class SQLiteMetadataManager:
 
         current_mtime = os.path.getmtime(file_path)
 
-        # Get processing state from ANY run (not just current)
-        state = self._get_processing_state(file_path)
+        try:
+            # Calculate content hash for the file
+            content_hash = self._calculate_content_hash(file_path)
+            
+            # First, check if this exact file has been processed before
+            cursor = self.connection.cursor()
+            cursor.execute(
+                """
+                SELECT file_modification_time, status FROM conversions
+                WHERE original_file_path = ? 
+                AND status IN ('completed', 'duplicate_referenced')
+                ORDER BY conversion_timestamp DESC
+                LIMIT 1
+            """,
+                (file_path,),
+            )
 
-        if state is None:
-            # File has never been processed
+            row = cursor.fetchone()
+            
+            if row:
+                # This exact file has been processed before
+                last_mtime = row[0]
+                
+                if skip_already_processed:
+                    # If file hasn't changed since last processing, skip it
+                    if current_mtime <= last_mtime:
+                        return False
+                    
+                    # If file has changed, we should reprocess it
+                    return True
+                else:
+                    # When skip_already_processed is False, always reprocess this file
+                    # even if it hasn't changed, but still check for duplicates from other files
+                    pass
+            
+            # Check if we have a successful conversion for this content from a different file
+            cursor.execute(
+                """
+                SELECT file_modification_time, status FROM conversions
+                WHERE content_hash = ? 
+                AND status IN ('completed', 'duplicate_referenced')
+                AND original_file_path != ?
+                ORDER BY conversion_timestamp DESC
+                LIMIT 1
+            """,
+                (content_hash, file_path),
+            )
+
+            row = cursor.fetchone()
+            
+            if row:
+                # We have a previous successful conversion for this content from another file
+                # For duplicate content, we should skip processing regardless of modification time
+                # since the content is identical
+                return False
+            
+            # No previous conversion found, process the file
             return True
 
-        # Check if file has been modified since last processing
-        last_mtime = state.get("file_modification_time", 0)
-
-        if current_mtime > last_mtime:
-            # File has been modified
+        except Exception as e:
+            self.logger.warning(f"Could not check processing state for {file_path}: {str(e)}")
+            # If we can't determine state, process the file to be safe
             return True
-
-        # Check if processing was successful
-        if state.get("status") in ["completed", "duplicate_referenced"]:
-            # File was successfully processed and hasn't changed
-            return False
-
-        # For failed or skipped files, we might want to retry
-        return True
 
     def _get_processing_state(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Get the processing state for a specific file."""
@@ -776,32 +819,44 @@ class SQLiteMetadataManager:
 
     def is_duplicate_content(self, content_hash: str, file_path: str) -> bool:
         """
-        Check if content with the given hash has already been processed.
+        Check if content with the given hash has already been successfully processed
+        by a DIFFERENT file (not the same file being re-processed).
 
         Args:
             content_hash: Content hash to check
             file_path: Current file path (for comparison)
 
         Returns:
-            True if duplicate content exists, False otherwise
+            True if duplicate content exists from a different file, False otherwise
         """
         conn = self._get_connection()
         cursor = conn.cursor()
 
         try:
-            # Count files with this content hash (excluding the current file_path if it exists)
+            # Check if we have any successful conversions for this content hash
+            # from a DIFFERENT file path (not just excluding current file_path,
+            # but ensuring it's actually a different file)
             cursor.execute(
                 """
-                SELECT COUNT(*) FROM content_hash_index
-                WHERE content_hash = ? AND file_path != ?
+                SELECT original_file_path FROM conversions
+                WHERE content_hash = ? 
+                AND status IN ('completed', 'duplicate_referenced')
+                AND original_file_path != ?
+                AND original_file_path IS NOT NULL
+                LIMIT 1
             """,
                 (content_hash, file_path),
             )
 
-            count = cursor.fetchone()[0]
-
-            # If there's already at least one file with this hash (other than current file), it's a duplicate
-            return count >= 1
+            result = cursor.fetchone()
+            if result:
+                # Found a different file with the same content hash
+                self.logger.debug(
+                    f"Found duplicate content: {file_path} matches existing {result[0]}"
+                )
+                return True
+            
+            return False
 
         except Exception as e:
             self.logger.error(f"Failed to check duplicate content: {str(e)}")

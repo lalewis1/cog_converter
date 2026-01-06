@@ -130,9 +130,9 @@ class ConversionEngine:
             Filtered list of files that should be processed
         """
         # Get processing configuration
-        skip_processed = self.config.get("processing.skip_already_processed", True)
         force_reprocess = self.config.get("processing.force_reprocess", False)
-        track_changes = self.config.get("processing.track_file_changes", True)
+        skip_already_processed = self.config.get("processing.skip_already_processed", True)
+        detect_duplicates = self.config.get("processing.detect_duplicates", True)
 
         # Get metadata manager if available
         metadata_manager = self.get_metadata_manager()
@@ -151,13 +151,12 @@ class ConversionEngine:
 
             # Check if metadata manager is available for smart filtering
             if metadata_manager:
-                # Check if file should be processed based on state
-                if skip_processed and track_changes:
-                    if not metadata_manager.should_process_file(
-                        file_path, force_reprocess
-                    ):
+                # Only skip already processed files if skip_already_processed is True
+                # Note: Duplicate handling is now done after conversion, not before
+                if skip_already_processed:
+                    if not metadata_manager.should_process_file(file_path, skip_already_processed=skip_already_processed):
                         should_process = False
-                        skip_reason = "already processed and unchanged"
+                        skip_reason = "already processed"
 
             # Add to appropriate list
             if should_process:
