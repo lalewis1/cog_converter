@@ -12,4 +12,4 @@ tasks:
 
   convert:
     desc: Run the COG Converter over the test data
-    cmd: uv run python -m cog_converter tests/data
+    cmd: uv run python -m cog_converter --config sample_config.json tests/data

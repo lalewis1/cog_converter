@@ -109,3 +109,7 @@ class ConfigurationManager:
         except Exception as e:
             print(f"Error saving config: {e}")
             return False
+
+    def __repr__(self):
+        """Pretty print the config as a JSON string"""
+        return json.dumps(self.config, indent=2)

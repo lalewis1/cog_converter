@@ -68,6 +68,9 @@ class SQLiteMetadataManager:
             # Create tables
             self._create_tables()
 
+            # Ensure database schema is up to date
+            self._ensure_schema_up_to_date()
+
             self.logger.info(f"Initialized SQLite database: {self.database_file}")
 
         except Exception as e:
@@ -139,6 +142,53 @@ class SQLiteMetadataManager:
 
         cursor.executescript(create_sql)
         self.connection.commit()
+
+    def _ensure_schema_up_to_date(self):
+        """Ensure database schema is up to date with required columns."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Check if error_message and error_type columns exist
+            cursor.execute("PRAGMA table_info(conversions)")
+            columns = [column[1] for column in cursor.fetchall()]
+
+            # Add missing columns if they don't exist
+            if "error_message" not in columns:
+                cursor.execute("ALTER TABLE conversions ADD COLUMN error_message TEXT")
+                self.logger.info("Added error_message column to conversions table")
+
+            if "error_type" not in columns:
+                cursor.execute("ALTER TABLE conversions ADD COLUMN error_type TEXT")
+                self.logger.info("Added error_type column to conversions table")
+
+            if "failed_timestamp" not in columns:
+                cursor.execute(
+                    "ALTER TABLE conversions ADD COLUMN failed_timestamp TEXT"
+                )
+                self.logger.info("Added failed_timestamp column to conversions table")
+
+            # Add columns for additional metadata (upload information)
+            if "upload_timestamp" not in columns:
+                cursor.execute(
+                    "ALTER TABLE conversions ADD COLUMN upload_timestamp TEXT"
+                )
+                self.logger.info("Added upload_timestamp column to conversions table")
+
+            if "upload_content_hash" not in columns:
+                cursor.execute(
+                    "ALTER TABLE conversions ADD COLUMN upload_content_hash TEXT"
+                )
+                self.logger.info(
+                    "Added upload_content_hash column to conversions table"
+                )
+
+            conn.commit()
+
+        except Exception as e:
+            conn.rollback()
+            self.logger.error(f"Failed to update schema: {str(e)}")
+            raise
 
     def _get_connection(self):
         """Get database connection, ensuring it's valid."""
@@ -392,6 +442,234 @@ class SQLiteMetadataManager:
             conn.rollback()
             self.logger.error(f"Failed to update content hash index: {str(e)}")
             raise
+
+    def add_failed_conversion(
+        self,
+        original_file_path: str,
+        error_message: str,
+        error_type: Optional[str] = None,
+        run_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Add a record for a failed conversion.
+
+        Args:
+            original_file_path: Path to the original file
+            error_message: Error message
+            error_type: Type of error
+            run_id: Optional run ID for tracking
+
+        Returns:
+            The created failed conversion record
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+
+        # Calculate file stats
+        file_size = (
+            os.path.getsize(original_file_path)
+            if os.path.exists(original_file_path)
+            else 0
+        )
+        file_mtime = (
+            os.path.getmtime(original_file_path)
+            if os.path.exists(original_file_path)
+            else 0
+        )
+
+        # Calculate content hash for tracking
+        try:
+            content_hash = self._calculate_content_hash(original_file_path)
+        except Exception:
+            content_hash = "unknown"
+
+        # Create failed conversion record
+        record = {
+            "original_file_path": original_file_path,
+            "cog_file_path": "",  # No COG file created
+            "blob_path": "",  # No blob created
+            "content_hash": content_hash,
+            "blob_url": None,
+            "original_file_size": file_size,
+            "cog_file_size": 0,  # No COG file
+            "conversion_timestamp": datetime.now().isoformat(),
+            "file_modification_time": file_mtime,
+            "status": "failed",
+            "error_message": error_message,
+            "error_type": error_type,
+            "failed_timestamp": datetime.now().isoformat(),
+            "run_id": run_id,
+        }
+
+        try:
+            # Begin transaction
+            cursor.execute("BEGIN TRANSACTION")
+
+            # Insert into conversions table
+            columns = ", ".join(record.keys())
+            placeholders = ", ".join(["?"] * len(record))
+            sql = f"INSERT INTO conversions ({columns}) VALUES ({placeholders})"
+
+            cursor.execute(sql, list(record.values()))
+            conversion_id = cursor.lastrowid
+
+            # Update processing state
+            self._update_processing_state(
+                original_file_path, content_hash, "failed", file_mtime, run_id
+            )
+
+            # Update content hash index
+            self._update_content_hash_index(original_file_path, content_hash)
+
+            # Commit transaction
+            conn.commit()
+
+            record["conversion_id"] = conversion_id
+            self.logger.error(
+                f"Failed conversion recorded for {original_file_path}: {error_message}"
+            )
+
+            return record
+
+        except Exception as e:
+            conn.rollback()
+            self.logger.error(f"Failed to add failed conversion record: {str(e)}")
+            raise
+
+    def _calculate_content_hash(self, file_path: str) -> str:
+        """Calculate content hash for a file."""
+        try:
+            from .hash_utils import calculate_content_hash
+
+            return calculate_content_hash(file_path)
+        except Exception as e:
+            self.logger.warning(f"Failed to calculate content hash: {str(e)}")
+            return "unknown"
+
+    def mark_file_failed(
+        self, file_path: str, error_message: str, run_id: Optional[int] = None
+    ) -> None:
+        """
+        Mark a file as failed with an error message.
+
+        Args:
+            file_path: Path to the file
+            error_message: Error message
+            run_id: Optional run ID for tracking
+        """
+        # Calculate content hash for tracking
+        try:
+            content_hash = self._calculate_content_hash(file_path)
+        except Exception:
+            content_hash = "unknown"
+
+        # Update processing state
+        file_mtime = os.path.getmtime(file_path) if os.path.exists(file_path) else 0
+        self._update_processing_state(
+            file_path, content_hash, "failed", file_mtime, run_id
+        )
+
+        # Add to content hash index
+        self._update_content_hash_index(file_path, content_hash)
+
+        # Add failed conversion record
+        self.add_failed_conversion(
+            original_file_path=file_path,
+            error_message=error_message,
+            error_type="processing_failed",
+            run_id=run_id,
+        )
+
+    def create_conversion_record_from_upload(
+        self,
+        original_file_path: str,
+        upload_result: Dict[str, Any],
+        run_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Create a conversion record from an upload result dictionary.
+
+        Args:
+            original_file_path: Original file path
+            upload_result: Upload result from BlobStorageUploader.upload_with_metadata()
+            run_id: Optional run ID for tracking
+
+        Returns:
+            Created conversion record
+        """
+        # Calculate content hash from the original file for consistency
+        original_content_hash = self._calculate_content_hash(original_file_path)
+
+        return self.add_conversion_record(
+            original_file_path=original_file_path,
+            cog_file_path=original_file_path,  # This should be the actual COG path
+            blob_path=upload_result["blob_path"],
+            content_hash=original_content_hash,  # Use the hash from original file
+            blob_url=upload_result["blob_url"],
+            additional_metadata={
+                "upload_timestamp": upload_result["upload_timestamp"],
+                "upload_content_hash": upload_result[
+                    "content_hash"
+                ],  # Store upload hash too
+            },
+            run_id=run_id,
+        )
+
+    def _file_has_conversion_record(self, file_path: str) -> bool:
+        """
+        Check if a file already has a conversion record.
+
+        Args:
+            file_path: Path to the file to check
+
+        Returns:
+            True if the file has a conversion record, False otherwise
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT 1 FROM conversions WHERE original_file_path = ?", (file_path,)
+        )
+        return cursor.fetchone() is not None
+
+    def mark_file_skipped(
+        self, file_path: str, reason: str, run_id: Optional[int] = None
+    ) -> None:
+        """
+        Mark a file as skipped with a reason.
+
+        Args:
+            file_path: Path to the file
+            reason: Reason for skipping
+            run_id: Optional run ID for tracking
+        """
+        # Calculate content hash for tracking
+        try:
+            content_hash = self._calculate_content_hash(file_path)
+        except Exception:
+            content_hash = "unknown"
+
+        # Update processing state
+        file_mtime = os.path.getmtime(file_path) if os.path.exists(file_path) else 0
+        self._update_processing_state(
+            file_path, content_hash, "skipped", file_mtime, run_id
+        )
+
+        # Add to content hash index
+        self._update_content_hash_index(file_path, content_hash)
+
+        # Only add failed conversion record if file doesn't already have a conversion record
+        if not self._file_has_conversion_record(file_path):
+            self.add_failed_conversion(
+                original_file_path=file_path,
+                error_message=f"Skipped: {reason}",
+                error_type="skipped",
+                run_id=run_id,
+            )
+        else:
+            self.logger.debug(
+                f"File {file_path} already has a conversion record, skipping failed conversion entry"
+            )
 
     def should_process_file(
         self, file_path: str, force: bool = False, current_run_id: Optional[int] = None

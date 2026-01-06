@@ -27,11 +27,11 @@ class AdvancedConversionEngine:
         use_advanced_pipeline: bool = True,
     ):
         """Initialize the advanced conversion engine"""
-        if config:
-            self.config = ConfigurationManager()
-            self.config.config.update(config)
-        else:
+        self.config = ConfigurationManager()
+        if config_file:
             self.config = ConfigurationManager(config_file)
+        if config:
+            self.config.config.update(config)
 
         self.file_discoverer = FileDiscoverer(self.config.config)
 
@@ -265,7 +265,7 @@ class AdvancedConversionEngine:
         if hasattr(self.pipeline, "get_metadata_manager"):
             metadata_manager = self.pipeline.get_metadata_manager()
             if metadata_manager:
-                print(f"  Metadata file: {metadata_manager.metadata_file}")
+                print(f"  Metadata file: {metadata_manager.database_file}")
 
         print("=" * 60)
 
