@@ -180,7 +180,9 @@ class ConversionPipeline:
 
         # If conversion was successful and storage is enabled, upload to blob storage
         if conversion_success and self.storage_enabled and cog_file_path:
-            upload_success = self._handle_post_conversion(file_path, cog_file_path, run_id)
+            upload_success = self._handle_post_conversion(
+                file_path, cog_file_path, run_id
+            )
             if upload_success:
                 # Check for duplicates after successful upload
                 content_hash = calculate_content_hash(file_path)
@@ -188,7 +190,9 @@ class ConversionPipeline:
             return upload_success
         elif conversion_success and self.metadata_enabled and cog_file_path:
             # If only metadata is enabled (no storage), still record the conversion
-            metadata_success = self._handle_metadata_only(file_path, cog_file_path, run_id)
+            metadata_success = self._handle_metadata_only(
+                file_path, cog_file_path, run_id
+            )
             if metadata_success:
                 # Check for duplicates after successful conversion
                 content_hash = calculate_content_hash(file_path)
@@ -225,38 +229,42 @@ class ConversionPipeline:
 
         try:
             # Check if this content already exists (from a different file)
-            self.logger.debug(f"Checking for duplicates of {file_path} with hash {content_hash}")
+            self.logger.debug(
+                f"Checking for duplicates of {file_path} with hash {content_hash}"
+            )
             if self.metadata_manager.is_duplicate_content(content_hash, file_path):
                 # Get existing blob info
-                existing_blob = self.metadata_manager.get_existing_blob_for_content(content_hash)
-                
+                existing_blob = self.metadata_manager.get_existing_blob_for_content(
+                    content_hash
+                )
+
                 if existing_blob:
                     # Additional safety check: ensure we're not referencing ourselves
-                    if existing_blob['original_file_path'] == file_path:
+                    if existing_blob["original_file_path"] == file_path:
                         self.logger.warning(
                             f"Potential self-reference detected for {file_path} - skipping duplicate handling"
                         )
                         return False
-                    
+
                     # Check if this file already has a conversion record (it should, since we just processed it)
                     conn = self.metadata_manager._get_connection()
                     cursor = conn.cursor()
                     cursor.execute(
                         "SELECT conversion_id FROM conversions WHERE original_file_path = ?",
-                        (file_path,)
+                        (file_path,),
                     )
                     existing_record = cursor.fetchone()
-                    
+
                     if existing_record:
                         # Update the existing record to be a duplicate reference
                         conversion_id = existing_record[0]
-                        
+
                         # Log detailed information about the duplicate reference
                         self.logger.info(
                             f"Creating duplicate reference: {file_path} -> {existing_blob['original_file_path']} "
                             f"(blob: {existing_blob['blob_path']})"
                         )
-                        
+
                         cursor.execute(
                             """
                             UPDATE conversions SET
@@ -269,15 +277,15 @@ class ConversionPipeline:
                             WHERE conversion_id = ?
                             """,
                             (
-                                existing_blob['original_conversion_id'],
-                                existing_blob['original_file_path'],
-                                existing_blob['blob_path'],
-                                existing_blob['blob_url'],
-                                conversion_id
-                            )
+                                existing_blob["original_conversion_id"],
+                                existing_blob["original_file_path"],
+                                existing_blob["blob_path"],
+                                existing_blob["blob_url"],
+                                conversion_id,
+                            ),
                         )
                         conn.commit()
-                        
+
                         self.stats["duplicates_referenced"] = (
                             self.stats.get("duplicates_referenced", 0) + 1
                         )
@@ -287,9 +295,7 @@ class ConversionPipeline:
                         return True
 
         except Exception as e:
-            self.logger.warning(
-                f"Could not handle duplicate for {file_path}: {str(e)}"
-            )
+            self.logger.warning(f"Could not handle duplicate for {file_path}: {str(e)}")
 
         return False
 

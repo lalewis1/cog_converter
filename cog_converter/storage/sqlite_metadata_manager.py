@@ -726,7 +726,7 @@ class SQLiteMetadataManager:
         try:
             # Calculate content hash for the file
             content_hash = self._calculate_content_hash(file_path)
-            
+
             # First, check if this exact file has been processed before
             cursor = self.connection.cursor()
             cursor.execute(
@@ -741,23 +741,23 @@ class SQLiteMetadataManager:
             )
 
             row = cursor.fetchone()
-            
+
             if row:
                 # This exact file has been processed before
                 last_mtime = row[0]
-                
+
                 if skip_already_processed:
                     # If file hasn't changed since last processing, skip it
                     if current_mtime <= last_mtime:
                         return False
-                    
+
                     # If file has changed, we should reprocess it
                     return True
                 else:
                     # When skip_already_processed is False, always reprocess this file
                     # even if it hasn't changed, but still check for duplicates from other files
                     pass
-            
+
             # Check if we have a successful conversion for this content from a different file
             cursor.execute(
                 """
@@ -772,18 +772,20 @@ class SQLiteMetadataManager:
             )
 
             row = cursor.fetchone()
-            
+
             if row:
                 # We have a previous successful conversion for this content from another file
                 # For duplicate content, we should skip processing regardless of modification time
                 # since the content is identical
                 return False
-            
+
             # No previous conversion found, process the file
             return True
 
         except Exception as e:
-            self.logger.warning(f"Could not check processing state for {file_path}: {str(e)}")
+            self.logger.warning(
+                f"Could not check processing state for {file_path}: {str(e)}"
+            )
             # If we can't determine state, process the file to be safe
             return True
 
@@ -855,7 +857,7 @@ class SQLiteMetadataManager:
                     f"Found duplicate content: {file_path} matches existing {result[0]}"
                 )
                 return True
-            
+
             return False
 
         except Exception as e:
@@ -1373,7 +1375,6 @@ class SQLiteMetadataManager:
             }
 
     # Database maintenance methods
-
 
     def vacuum_database(self) -> bool:
         """

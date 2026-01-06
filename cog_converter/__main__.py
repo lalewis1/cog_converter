@@ -103,8 +103,12 @@ def main():
 
     # Set defaults to a special sentinel value to distinguish "not provided" from "False"
     parser.set_defaults(
-        skip_processed="NOT_SET", detect_duplicates="NOT_SET", track_changes="NOT_SET",
-        enable_storage="NOT_SET", connection_string="NOT_SET", container="NOT_SET"
+        skip_processed="NOT_SET",
+        detect_duplicates="NOT_SET",
+        track_changes="NOT_SET",
+        enable_storage="NOT_SET",
+        connection_string="NOT_SET",
+        container="NOT_SET",
     )
 
     args = parser.parse_args()
@@ -136,10 +140,10 @@ def main():
     if hasattr(args, "enable_storage") and args.enable_storage != "NOT_SET":
         storage_config["enabled"] = args.enable_storage
         storage_config["provider"] = "azure"
-    
+
     if hasattr(args, "connection_string") and args.connection_string != "NOT_SET":
         storage_config["azure_connection_string"] = args.connection_string or ""
-    
+
     if hasattr(args, "container") and args.container != "NOT_SET":
         storage_config["container_name"] = args.container
 
