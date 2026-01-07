@@ -168,7 +168,7 @@ class ConversionEngine:
                 skipped_files.append((file_path, skip_reason))
                 if metadata_manager:
                     metadata_manager.mark_file_skipped(
-                        file_path, skip_reason or "unknown reason"
+                        file_path, skip_reason or "unknown reason", self.current_run_id
                     )
 
         # Log filtering results
