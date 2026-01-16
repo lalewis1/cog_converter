@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from .converters.geotiff_converter import GeoTiffToCogConverter
 from .converters.worldimage_converter import WorldImageToCogConverter
+from .converters.ecw_converter import EcwToCogConverter
 from .error_handler import ErrorHandler
 from .storage.blob_uploader import BlobStorageUploader, MockBlobStorageUploader
 from .storage.hash_utils import calculate_content_hash
@@ -45,6 +46,7 @@ class ConversionPipeline:
         return [
             GeoTiffToCogConverter(self.config),
             WorldImageToCogConverter(self.config),
+            EcwToCogConverter(self.config),
             # Add more converters here as needed
         ]
 

@@ -5,7 +5,7 @@ Base Converter Class for COG Conversion Engine
 
 import os
 import subprocess
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 
 class BaseRasterConverter:
@@ -27,7 +27,7 @@ class BaseRasterConverter:
         """Convert to COG format"""
         raise NotImplementedError("Subclasses must implement convert()")
 
-    def _run_gdal_command(self, command: List[str]) -> Tuple[bool, str]:
+    def _run_gdal_command(self, command: List[str], env: Optional[dict] = None) -> Tuple[bool, str]:
         """Helper for running GDAL commands with error handling"""
         try:
             result = subprocess.run(
@@ -36,6 +36,7 @@ class BaseRasterConverter:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=env or os.environ.copy(),
             )
             return True, result.stdout
         except subprocess.CalledProcessError as e:
